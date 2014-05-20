@@ -14,6 +14,7 @@ package ru.chessmax.emulators.chip8.core
      */
     public class Chip8
     {
+        public static var DEBUG:Function/*Array Registers*/;
         private static const FONT_SET:Array =
         [
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -591,6 +592,11 @@ package ru.chessmax.emulators.chip8.core
                     trace("Beep");
                 }
                 --_soundTimer;
+            }
+
+            if (DEBUG !== null)
+            {
+                DEBUG(_V, _I, _delayTimer, _soundTimer);
             }
         }
 

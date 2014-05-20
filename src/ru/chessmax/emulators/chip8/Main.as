@@ -7,8 +7,12 @@ package ru.chessmax.emulators.chip8
     import flash.display.StageScaleMode;
     import flash.events.KeyboardEvent;
     import flash.text.TextField;
+    import flash.text.TextFieldAutoSize;
     import flash.ui.Keyboard;
     import flash.utils.ByteArray;
+
+    import ru.chessmax.emulators.chip8.asm.Assembler;
+    import ru.chessmax.emulators.chip8.core.Chip8;
 
     import ru.chessmax.emulators.chip8.core.Chip8VM;
 
@@ -35,6 +39,8 @@ package ru.chessmax.emulators.chip8
         [Embed("assets/Tank.ch8", mimeType="application/octet-stream")]
         private static const C8_TANK:Class;
 
+        private var _debug:TextField;
+
         private var _vm:Chip8VM;
         private var _display:Bitmap;
 
@@ -55,6 +61,12 @@ package ru.chessmax.emulators.chip8
             _display.y = 100;
             _display.scaleX = _display.scaleY = 10;
             _vm = new Chip8VM(_display);
+
+            _debug = new TextField();
+            _debug.autoSize = TextFieldAutoSize.LEFT;
+            addChild(_debug);
+            _debug.x = _display.x;
+            _debug.y = _display.y + _display.height + 5;
 
 //           trace((524-2).toString(16));
 //            trace((0x200 + 16 * 7).toString(16));
@@ -80,13 +92,19 @@ package ru.chessmax.emulators.chip8
             trace(simple.length);
 
             var str:String = <![CDATA[
-
-gsdfg
-            sdfg
-
-
+                ;main label
+                main:
+                ADD V5, 5
+                ADD V5, V6
+                add i, v5
+                jp main
             ]]>;
-            trace(str);
+            Chip8.DEBUG = function(value:Array, _I, _delayTimer, _soundTimer):void
+            {
+                _debug.text = "VX: " + value.map(function(a,...abc):String{a = a.toString(16);if(a.length<2)a = "0"+a;return a}).join(" ") + "\nI: " + _I.toString(16)+ "\nDT: " + _delayTimer.toString(16)+ "\nST: " + _soundTimer.toString(16);
+            }
+            _vm.load(new Assembler().assemble(str));
+            return;
 
             simple = new ByteArray();
             simple.writeShort(0x6000);

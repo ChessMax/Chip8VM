@@ -3,6 +3,10 @@
  */
 package ru.chessmax.emulators.chip8.asm
 {
+    import flash.utils.ByteArray;
+
+    import ru.chessmax.emulators.chip8.asm.StringUtil;
+
     /**
      *
      * Created 30.04.2014
@@ -12,6 +16,7 @@ package ru.chessmax.emulators.chip8.asm
      */
     public class Assembler
     {
+        private static const ENTRY_POINT:int = 0x200;
         /*
              NNN         indicates a 12 bit address.
              KK          means an 8 bit constant.
@@ -131,59 +136,205 @@ package ru.chessmax.emulators.chip8.asm
 
          */
 
+        /**
+         * OPCODES[command] -> Opcode
+         */
+        private static const OPCODES:Object = Opcode.LIST;
+
         private var _tokens:Array /*Token*/ = [];
         /**
          * _labels[labelName] = label address
          */
         private var _labels:Object /*String*/ = {};
 
+        private var _lineIndex:int = -1;
+
+        private static const EMPTY_STRING     :String = "";
+        private static const WHITE_SPACES_TRIM:RegExp = /^\s+|\s+$/g;
+        private static const LINE_BREAK       :RegExp = /\n/g;
+        private var _data:ByteArray;
+
         public function Assembler()
         {
             super();
         }
 
-        public function assemble(value:String):void
+        public function assemble(value:String):ByteArray
         {
+            if (value)
+            {
+                // trim white spaces
+                value = StringUtil.trim(value);
+                var list:Array /* String */ = value.split(LINE_BREAK);
+                var tokens:Array = [];
+
+                for (_lineIndex = 0;_lineIndex<list.length;++_lineIndex)
+                {
+                    var // trim string
+                    line:String = StringUtil.trim(list[_lineIndex] as String);
+                    // remove comment
+                    var index:int = line.indexOf(TokenType.COMMENT);
+                    if (index !== -1)
+                    {
+                        line = index > 0 ? line.substring(0, index) : "";
+                    }
+                    if (line && line.length > 1)
+                    {
+                        // check is a label
+                        index = line.indexOf(TokenType.LABEL);
+                        if (index !== -1)
+                        {
+                            var label:String = line.substring(0, index);
+                            validateLabelName(label);
+
+                            _labels[label] = ENTRY_POINT + 2 * tokens.length;
+
+                            //tokens[tokens.length] = new Token(TokenType.LABEL, label);
+
+                            continue;
+                        }
+                        var command:String = "";
+                        var args:String = "";
+                        // check command and args
+                        index = line.indexOf(TokenType.COMMAND_SEPARATOR);
+                        if (index !== -1)
+                        {
+                            command = line.substring(0, index).toLowerCase();
+                            args = line.substring(index + 1, line.length);
+                        }
+                        else
+                        {
+                            // иначе это все комманда
+                            command = line.toLowerCase();
+                        }
+
+                        tokens[tokens.length] = new Token(TokenType.COMMAND, getOpcodeInfo(command, args));
+                        continue;
+                    }
+
+                    if (line && line.length > 0)
+                    {
+                        throw "Unknown code line: " + line;
+                    }
+                }
+
+                trace("Tokenization completed");
+            }
+
             if (!value || value.length < 3)
             {
                 throw "Can't compile empty project";
             }
 
-            var index:uint = 0;
-            do
-            {
-                var char:String = value.charAt(index);
-                switch (char)
-                {
-                    case ";"://ignore line comment
-                        ++index;
-                        while (index < value.length)
-                        {
-                            char = value.charAt(index++);
-                            if (char === "\n" || char === "\r")
-                            {
-                                break;
-                            }
-                        }
-                    break;
+            build(tokens);
+            return _data;
+        }
 
-                    
+        /**
+         * Создать билд
+         */
+        private function build(value:Array/*Token*/):void
+        {
+            _data = new ByteArray();
+
+            trace("Build started: ------------------");
+            var build:String = "";
+
+            for (var i:int = 0;i<value.length;++i)
+            {
+                var token:Token = value[i];
+                if (token && token.type === TokenType.COMMAND)
+                {
+                    var opcode:Opcode = token.value.shift() as Opcode;
+
+                    // replace label to Addr
+                    var args:Array = token.value as Array;
+                    for (var j:int = 0;j<args.length;++j)
+                    {
+                        var arg:String = args[j] as String;
+                        if (arg && arg in _labels)
+                        {
+                            args[j] = _labels[arg];
+                        }
+                    }
+
+                    var word:int = opcode.encode(args);
+                    build+= word.toString(16) + " ";
+
+                    if ((i + 1) % 6 === 0) build+= "\n";
+
+                    _data.writeShort(word);
                 }
             }
-            while (true)
+
+            trace(build);
+            trace("End build")
         }
-    }
-}
 
-class Token
-{
-    private var _name:String;
-    private var _args:Array;
+        /**
+         * Return true if value is a valid label name
+         * @param value
+         * @return
+         */
+        private function validateLabelName(value:String):void
+        {
+            if (value && value.length > 0)
+            {
+                var char:String = value.charAt(0);
+                if (StringUtil.isDigit(char))
+                {
+                    throw "Invalid label name. Label name shouldn't starts with a digit (" + _lineIndex + ": 0)";
+                }
+                for (var i:int = 0;i<value.length;++i)
+                {
+                    char = value.charAt(i);
+                    if (char < "A" || char > "z")
+                    {
+                        throw "Invalid label name. Label name shouldn't contains invalid char \"" + char + "\" (" + _lineIndex + ": " + i + ")";
+                    }
+                    else
+                    if (char > "a" && char < "Z")
+                    {
+                        throw "Invalid label name. Label name shouldn't contains invalid char \"" + char + "\" (" + _lineIndex + ": " + i + ")";
+                    }
+                }
+            }
+        }
 
-    public function Token(name:String, args:Array = null)
-    {
-        super();
-        _name = name;
-        _args = args;
+        /**
+         * Возвращает информацию об опкоде
+         * @param command
+         * @param params
+         * @return
+         */
+        private function getOpcodeInfo(command:String, params:String):Array /* [Opcode, ...args]*/
+        {
+            var opcodes:Array /*Opcode*/ = OPCODES[command] as Array;
+            if (opcodes && opcodes.length > 0)
+            {
+                // split & trim args
+                var args:Array = params.split(TokenType.ARGS_SEPARATOR);
+                for (var i:int = 0;i<args.length;++i)
+                {
+                    args[i] = StringUtil.trim(args[i] as String);
+                }
+
+                // search for a appropriate opcode
+                for (var i:int = 0;i<opcodes.length;++i)
+                {
+                    var opcode:Opcode = opcodes[i] as Opcode;
+                    if (opcode && opcode.validateArgs(args))
+                    {
+                        args.unshift(opcode);
+                        return args;
+                    }
+                }
+                throw "Invalid arguments found \"" + params + "\" (" + _lineIndex + ")";
+            }
+            else
+            {
+                throw "Unknown command found \"" + command + "\" (" + _lineIndex + ")";
+            }
+        }
     }
 }
